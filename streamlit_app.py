@@ -4,39 +4,50 @@ import numpy as np
 from sklearn.preprocessing import MultiLabelBinarizer, StandardScaler
 from sklearn.cluster import KMeans
 
+# Streamlit layout
 st.set_page_config(page_title="Survey Data Cleaner", layout="wide")
 
 st.title("✨ Survey Data Cleaning & Clustering App")
-st.write("Upload your dataset, clean it, explore it, and perform clustering — all in one place!")
+st.write("Upload a CSV file to clean and cluster it in minutes!")
 
-# --------------------------
-# File Upload
-# --------------------------
+pd.set_option('future.no_silent_downcasting', True)
+
+# -----------------------------------------
+# FILE UPLOAD
+# -----------------------------------------
 uploaded = st.file_uploader("📂 Upload survey_results_public.csv", type=["csv"])
 
 if uploaded:
-    df = pd.read_csv(uploaded, low_memory=False)
-    st.success("File uploaded successfully!")
-    st.write("### 🔍 Raw Data Preview")
-    st.dataframe(df.head())
 
-    # --------------------------
-    # Cleaning
-    # --------------------------
+    df = pd.read_csv(uploaded, low_memory=False)
+    st.success("✔ File uploaded successfully")
+
+    st.write("### 🔍 Raw Data Preview")
+    st.dataframe(df.head(), width="stretch")
+
+    # -----------------------------------------
+    # DATA CLEANING
+    # -----------------------------------------
     st.header("🧹 Data Cleaning")
 
-    # Drop duplicates
+    df = df.reset_index(drop=True)
+
+    # remove duplicates
     df.drop_duplicates(inplace=True)
 
-    # Drop columns >70% missing
+    # drop columns >70% missing
     missing_percent = df.isna().mean()
     cols_to_drop = missing_percent[missing_percent > 0.70].index
     df.drop(columns=cols_to_drop, inplace=True)
 
-    # Convert yes/no
+    # YES/NO standardization
     def convert_yes_no(col):
-        mapping = {"Yes": True, "No": False, "yes": True, "no": False, 
-                   "Y": True, "N": False, "y": True, "n": False}
+        mapping = {
+            "yes": True, "y": True,
+            "no": False, "n": False,
+            "Yes": True, "Y": True,
+            "No": False, "N": False
+        }
         col = col.replace(mapping)
         return col.infer_objects(copy=False)
 
@@ -45,7 +56,7 @@ if uploaded:
         if series.isin(["yes", "no", "y", "n"]).any():
             df[col] = convert_yes_no(df[col])
 
-    # Clean age
+    # Clean Age
     def clean_age(x):
         if isinstance(x, str) and "-" in x:
             x = x.replace("years old", "").strip()
@@ -59,7 +70,7 @@ if uploaded:
     if "Age" in df.columns:
         df["Age_clean"] = df["Age"].apply(clean_age)
 
-    # Salary cleaning
+    # Clean salary numbers
     salary_cols = [c for c in df.columns if "Salary" in c]
     for col in salary_cols:
         df[col] = (
@@ -84,10 +95,9 @@ if uploaded:
         
         if "less than" in x:
             return 0.5
-
         if "more than" in x:
             return 50
-
+        
         x = x.replace("years","").replace("year","").strip()
         try:
             return float(x)
@@ -97,51 +107,75 @@ if uploaded:
     if "YearsCoding" in df.columns:
         df["YearsCoding"] = df["YearsCoding"].apply(clean_years_coding)
 
-    # Fill missing values
+    # Fill missing numeric/categorical
     num_cols = df.select_dtypes(include=["int64", "float64"]).columns
     df[num_cols] = df[num_cols].fillna(df[num_cols].median())
 
     cat_cols = df.select_dtypes(include=["object", "bool"]).columns
-    df[cat_cols] = df[cat_cols].fillna(df[cat_cols].mode().iloc[0])
+    df[cat_cols] = (
+        df[cat_cols]
+        .fillna(df[cat_cols].mode().iloc[0])
+        .infer_objects(copy=False)
+    )
 
-    st.success("🎉 Data Cleaning Completed!")
-    st.write("### ✔ Cleaned Dataset Preview")
-    st.dataframe(df.head())
+    st.success("🎉 Cleaning completed successfully!")
 
-    # Download cleaned file
+    st.write("### ✔ Cleaned Data Preview")
+    st.dataframe(df.head(), width="stretch")
+
+    # -----------------------------------------
+    # DOWNLOAD CLEANED FILE
+    # -----------------------------------------
     cleaned_csv = df.to_csv(index=False).encode("utf-8")
-    st.download_button("⬇ Download Cleaned CSV", cleaned_csv, "cleaned_survey.csv")
+    st.download_button("⬇ Download Cleaned CSV", cleaned_csv, "cleaned_data.csv")
 
-    # --------------------------
-    # Clustering
-    # --------------------------
-    st.header("🔮 Clustering on Languages + Age + Coding Years")
+    # -----------------------------------------
+    # CLUSTERING
+    # -----------------------------------------
+    st.header("🔮 Developer Clustering Engine (Languages + Age + Experience)")
 
     if st.button("Run Clustering"):
-        cluster_df = df[["LanguageWorkedWith", "YearsCoding", "Age_clean"]].copy()
 
-        # Language list split
+        # ensure dataframe – avoid mismatched lengths
+        df = df.reset_index(drop=True)
+
+        cluster_df = df[["LanguageWorkedWith", "YearsCoding", "Age_clean"]].copy()
+        cluster_df = cluster_df.reset_index(drop=True)
+
+        # fix missing and ensure consistent format
         cluster_df["LanguageWorkedWith"] = (
-            cluster_df["LanguageWorkedWith"].astype(str).str.split(";")
+            cluster_df["LanguageWorkedWith"]
+            .fillna("")
+            .astype(str)
+            .str.split(";")
         )
 
+        # Language binarization
         mlb = MultiLabelBinarizer()
-        lang_df = pd.DataFrame(mlb.fit_transform(cluster_df["LanguageWorkedWith"]),
-                               columns=mlb.classes_)
+        lang_df = pd.DataFrame(
+            mlb.fit_transform(cluster_df["LanguageWorkedWith"]),
+            columns=mlb.classes_
+        )
 
         numeric = cluster_df[["YearsCoding", "Age_clean"]].fillna(0)
 
+        # Final dataset
         X = pd.concat([lang_df, numeric], axis=1)
+        X = X.reset_index(drop=True)
 
+        # Scale numeric columns
         scaler = StandardScaler()
         X[["YearsCoding", "Age_clean"]] = scaler.fit_transform(numeric)
 
-        kmeans = KMeans(n_clusters=4, random_state=42)
+        # KMeans
+        kmeans = KMeans(n_clusters=4, random_state=42, n_init='auto')
         df["Cluster"] = kmeans.fit_predict(X)
 
-        st.success("✨ Clustering Completed!")
-        st.write("### Clustered Data Preview")
-        st.dataframe(df[["LanguageWorkedWith", "YearsCoding", "Age_clean", "Cluster"]].head())
+        st.success("✨ Clustering Completed Successfully!")
 
-        final_csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button("⬇ Download Clustered CSV", final_csv, "clustered_survey.csv")
+        st.write("### Clustered Data Preview")
+        st.dataframe(df[["LanguageWorkedWith", "YearsCoding", "Age_clean", "Cluster"]].head(), width="stretch")
+
+        # download clustered
+        clustered_csv = df.to_csv(index=False).encode("utf-8")
+        st.download_button("⬇ Download Clustered CSV", clustered_csv, "clustered_data.csv")
