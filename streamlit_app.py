@@ -224,9 +224,12 @@ with tab5:
     if len(ai_cols) == 0:
         st.error("AI columns not found.")
     else:
-        ai = df[ai_cols].applymap(safe_text)
+        # Convert every value to clean string safely
+        ai = df[ai_cols].applymap(lambda x: safe_text(x).lower().strip())
 
+        # ---------- FIX: ENSURE X IS STRING ----------
         def danger(x):
+            x = str(x)
             if "superintelligence" in x or "singularity" in x:
                 return "High Risk Concern"
             if "making important decisions" in x:
@@ -236,6 +239,7 @@ with tab5:
             return "Unknown / Missing"
 
         def interest(x):
+            x = str(x)
             if "superintelligence" in x:
                 return "Superintelligence Curiosity"
             if "making important decisions" in x:
@@ -245,6 +249,7 @@ with tab5:
             return "Unknown / Missing"
 
         def responsible(x):
+            x = str(x)
             if "people creating" in x:
                 return "Developers Responsible"
             if "regulatory" in x or "national" in x:
@@ -252,6 +257,7 @@ with tab5:
             return "Unknown / Missing"
 
         def future(x):
+            x = str(x)
             if "worried" in x:
                 return "Negative"
             if "excited" in x:
@@ -260,6 +266,7 @@ with tab5:
                 return "Neutral"
             return "Unknown / Missing"
 
+        # Apply
         ai["Danger"] = ai["AIDangerous"].apply(danger)
         ai["Interest"] = ai["AIInteresting"].apply(interest)
         ai["Responsible"] = ai["AIResponsible"].apply(responsible)
@@ -267,7 +274,9 @@ with tab5:
 
         st.dataframe(ai)
 
+        # ---------- Plots ----------
         fig, ax = plt.subplots(2, 2, figsize=(14, 10))
+
         ai["Danger"].value_counts().plot(kind="bar", ax=ax[0][0], color="red")
         ai["Interest"].value_counts().plot(kind="bar", ax=ax[0][1], color="orange")
         ai["Responsible"].value_counts().plot(kind="bar", ax=ax[1][0], color="skyblue")
