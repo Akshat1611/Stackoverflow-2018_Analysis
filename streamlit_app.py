@@ -1,181 +1,107 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 from sklearn.preprocessing import MultiLabelBinarizer, StandardScaler
 from sklearn.cluster import KMeans
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
 
-# Streamlit layout
-st.set_page_config(page_title="Survey Data Cleaner", layout="wide")
+# ---------------------------------------------------
+# STREAMLIT UI
+# ---------------------------------------------------
+st.set_page_config(page_title="Developer Clustering App", layout="wide")
+st.title("👨‍💻 Developer Clustering App")
+st.write("Upload your cleaned StackOverflow-like survey dataset to generate clusters based on skills and experience.")
 
-st.title("✨ Survey Data Cleaning & Clustering App")
-st.write("Upload a CSV file to clean and cluster it in minutes!")
-
-pd.set_option('future.no_silent_downcasting', True)
-
-# -----------------------------------------
+# ---------------------------------------------------
 # FILE UPLOAD
-# -----------------------------------------
-uploaded = st.file_uploader("📂 Upload survey_results_public.csv", type=["csv"])
+# ---------------------------------------------------
+uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
 
-if uploaded:
+if uploaded_file:
+    df = pd.read_csv(uploaded_file, low_memory=False)
 
-    df = pd.read_csv(uploaded, low_memory=False)
-    st.success("✔ File uploaded successfully")
+    st.success("File uploaded successfully!")
+    st.write("### Preview of Data")
+    st.dataframe(df.head())
 
-    st.write("### 🔍 Raw Data Preview")
-    st.dataframe(df.head(), width="stretch")
+    # ---------------------------------------------------
+    # SELECT COLUMNS (optional)
+    # ---------------------------------------------------
+    st.subheader("Select Columns for Clustering")
+    languages_col = st.selectbox("Column with languages:", df.columns, index=df.columns.get_loc("LanguageWorkedWith") if "LanguageWorkedWith" in df.columns else 0)
+    years_col = st.selectbox("Column for Years Coding:", df.columns, index=df.columns.get_loc("YearsCoding") if "YearsCoding" in df.columns else 0)
+    age_col = st.selectbox("Column for Age:", df.columns, index=df.columns.get_loc("Age_clean") if "Age_clean" in df.columns else 0)
 
-    # -----------------------------------------
-    # DATA CLEANING
-    # -----------------------------------------
-    st.header("🧹 Data Cleaning")
+    # ---------------------------------------------------
+    # PROCESS DATA
+    # ---------------------------------------------------
+    st.header("🔧 Processing Data")
 
-    df = df.reset_index(drop=True)
+    cluster_df = df[[languages_col, years_col, age_col]].copy()
 
-    # remove duplicates
-    df.drop_duplicates(inplace=True)
+    # Convert language list
+    cluster_df[languages_col] = cluster_df[languages_col].astype(str).str.split(";")
 
-    # drop columns >70% missing
-    missing_percent = df.isna().mean()
-    cols_to_drop = missing_percent[missing_percent > 0.70].index
-    df.drop(columns=cols_to_drop, inplace=True)
-
-    # YES/NO standardization
-    def convert_yes_no(col):
-        mapping = {
-            "yes": True, "y": True,
-            "no": False, "n": False,
-            "Yes": True, "Y": True,
-            "No": False, "N": False
-        }
-        col = col.replace(mapping)
-        return col.infer_objects(copy=False)
-
-    for col in df.columns:
-        series = df[col].astype(str).str.lower()
-        if series.isin(["yes", "no", "y", "n"]).any():
-            df[col] = convert_yes_no(df[col])
-
-    # Clean Age
-    def clean_age(x):
-        if isinstance(x, str) and "-" in x:
-            x = x.replace("years old", "").strip()
-            a, b = x.split("-")
-            return (float(a) + float(b)) / 2
-        try:
-            return float(x)
-        except:
-            return np.nan
-
-    if "Age" in df.columns:
-        df["Age_clean"] = df["Age"].apply(clean_age)
-
-    # Clean salary numbers
-    salary_cols = [c for c in df.columns if "Salary" in c]
-    for col in salary_cols:
-        df[col] = (
-            df[col].astype(str)
-            .str.replace("$", "", regex=False)
-            .str.replace(",", "", regex=False)
-        )
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    # Clean YearsCoding
-    def clean_years_coding(x):
-        if pd.isna(x):
-            return np.nan
-        x = str(x).lower().strip()
-
-        if "-" in x:
-            try:
-                a, b = x.replace("years","").replace("year","").split("-")
-                return (float(a)+float(b))/2
-            except:
-                return np.nan
-        
-        if "less than" in x:
-            return 0.5
-        if "more than" in x:
-            return 50
-        
-        x = x.replace("years","").replace("year","").strip()
-        try:
-            return float(x)
-        except:
-            return np.nan
-
-    if "YearsCoding" in df.columns:
-        df["YearsCoding"] = df["YearsCoding"].apply(clean_years_coding)
-
-    # Fill missing numeric/categorical
-    num_cols = df.select_dtypes(include=["int64", "float64"]).columns
-    df[num_cols] = df[num_cols].fillna(df[num_cols].median())
-
-    cat_cols = df.select_dtypes(include=["object", "bool"]).columns
-    df[cat_cols] = (
-        df[cat_cols]
-        .fillna(df[cat_cols].mode().iloc[0])
-        .infer_objects(copy=False)
+    # MultiLabel Binary
+    mlb = MultiLabelBinarizer()
+    lang_df = pd.DataFrame(
+        mlb.fit_transform(cluster_df[languages_col]),
+        columns=mlb.classes_
     )
 
-    st.success("🎉 Cleaning completed successfully!")
+    # Numeric handling
+    numeric_df = cluster_df[[years_col, age_col]].fillna(0)
 
-    st.write("### ✔ Cleaned Data Preview")
-    st.dataframe(df.head(), width="stretch")
+    # Final dataset
+    X = pd.concat([lang_df, numeric_df], axis=1)
 
-    # -----------------------------------------
-    # DOWNLOAD CLEANED FILE
-    # -----------------------------------------
-    cleaned_csv = df.to_csv(index=False).encode("utf-8")
-    st.download_button("⬇ Download Cleaned CSV", cleaned_csv, "cleaned_data.csv")
+    # Scale numeric
+    scaler = StandardScaler()
+    X[[years_col, age_col]] = scaler.fit_transform(numeric_df)
 
-    # -----------------------------------------
-    # CLUSTERING
-    # -----------------------------------------
-    st.header("🔮 Developer Clustering Engine (Languages + Age + Experience)")
+    # ---------------------------------------------------
+    # K-Means
+    # ---------------------------------------------------
+    st.subheader("🔢 K-Means Clustering")
 
-    if st.button("Run Clustering"):
+    k = st.slider("Choose number of clusters", 2, 10, 4)
+    kmeans = KMeans(n_clusters=k, random_state=42)
+    df["Cluster"] = kmeans.fit_predict(X)
 
-        # ensure dataframe – avoid mismatched lengths
-        df = df.reset_index(drop=True)
+    st.write("### Cluster Output (First 10 rows)")
+    st.dataframe(df[[languages_col, years_col, age_col, "Cluster"]].head(10))
 
-        cluster_df = df[["LanguageWorkedWith", "YearsCoding", "Age_clean"]].copy()
-        cluster_df = cluster_df.reset_index(drop=True)
+    # ---------------------------------------------------
+    # PCA VISUALIZATION
+    # ---------------------------------------------------
+    st.subheader("📊 Cluster Visualization (PCA 2D)")
 
-        # fix missing and ensure consistent format
-        cluster_df["LanguageWorkedWith"] = (
-            cluster_df["LanguageWorkedWith"]
-            .fillna("")
-            .astype(str)
-            .str.split(";")
-        )
+    pca = PCA(n_components=2)
+    pca_result = pca.fit_transform(X)
 
-        # Language binarization
-        mlb = MultiLabelBinarizer()
-        lang_df = pd.DataFrame(
-            mlb.fit_transform(cluster_df["LanguageWorkedWith"]),
-            columns=mlb.classes_
-        )
+    df["PCA1"] = pca_result[:, 0]
+    df["PCA2"] = pca_result[:, 1]
 
-        numeric = cluster_df[["YearsCoding", "Age_clean"]].fillna(0)
+    fig, ax = plt.subplots(figsize=(10, 5))
+    scatter = ax.scatter(df["PCA1"], df["PCA2"], c=df["Cluster"])
+    plt.xlabel("PCA Component 1")
+    plt.ylabel("PCA Component 2")
+    plt.title("Clusters in 2D PCA Space")
 
-        # Final dataset
-        X = pd.concat([lang_df, numeric], axis=1)
-        X = X.reset_index(drop=True)
+    st.pyplot(fig)
 
-        # Scale numeric columns
-        scaler = StandardScaler()
-        X[["YearsCoding", "Age_clean"]] = scaler.fit_transform(numeric)
+    # ---------------------------------------------------
+    # DOWNLOAD
+    # ---------------------------------------------------
+    st.subheader("📥 Download Updated Dataset")
 
-        # KMeans
-        kmeans = KMeans(n_clusters=4, random_state=42, n_init='auto')
-        df["Cluster"] = kmeans.fit_predict(X)
+    csv_output = df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="Download CSV with Clusters",
+        data=csv_output,
+        file_name="clustered_output.csv",
+        mime="text/csv"
+    )
 
-        st.success("✨ Clustering Completed Successfully!")
-
-        st.write("### Clustered Data Preview")
-        st.dataframe(df[["LanguageWorkedWith", "YearsCoding", "Age_clean", "Cluster"]].head(), width="stretch")
-
-        # download clustered
-        clustered_csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button("⬇ Download Clustered CSV", clustered_csv, "clustered_data.csv")
+else:
+    st.info("Please upload a CSV file to begin.")
