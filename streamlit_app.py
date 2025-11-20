@@ -210,8 +210,7 @@ with tab4:
     ax.barh(importance["Feature"], importance["Importance"])
     ax.invert_yaxis()
     st.pyplot(fig)
-
-
+    
 # ==============================================================
 # TAB 5 — AI SENTIMENT
 # ==============================================================
@@ -224,10 +223,11 @@ with tab5:
     if len(ai_cols) == 0:
         st.error("AI columns not found.")
     else:
-        # Convert every value to clean string safely
-        ai = df[ai_cols].applymap(lambda x: safe_text(x).lower().strip())
 
-        # ---------- FIX: ENSURE X IS STRING ----------
+        # --------- FIX: ALWAYS STRINGIFY VALUE  ----------
+        ai = df[ai_cols].applymap(lambda x: str(safe_text(x)).lower().strip())
+
+        # ---------- SAFE CATEGORY FUNCTIONS ----------
         def danger(x):
             x = str(x)
             if "superintelligence" in x or "singularity" in x:
@@ -278,8 +278,16 @@ with tab5:
         fig, ax = plt.subplots(2, 2, figsize=(14, 10))
 
         ai["Danger"].value_counts().plot(kind="bar", ax=ax[0][0], color="red")
+        ax[0][0].set_title("AI Danger Perception")
+
         ai["Interest"].value_counts().plot(kind="bar", ax=ax[0][1], color="orange")
+        ax[0][1].set_title("AI Interest Categories")
+
         ai["Responsible"].value_counts().plot(kind="bar", ax=ax[1][0], color="skyblue")
+        ax[1][0].set_title("Who Should Be Responsible?")
+
         ai["Future"].value_counts().plot(kind="bar", ax=ax[1][1], color="green")
+        ax[1][1].set_title("Future AI Sentiment")
 
         st.pyplot(fig)
+
